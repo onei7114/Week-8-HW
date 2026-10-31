@@ -1,6 +1,6 @@
 # Project: Art Canvas
 
-> - **Files:** skelton-dance.html
+> - **Files:** art-canvas.html
 > - **Dates:** 2026-10-31
 > - **Defaults:** Co Pilot
 > - **Status:** keeper
