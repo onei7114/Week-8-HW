@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cat Jump</title>
+<style>
+  :root { --ink: #f5f2ff; --muted: #b6b2ca; --panel: #211d3a; --line: #4a4270; --gold: #ffd166; --pink: #f78fb3; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #100e20; color: var(--ink); font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { width: min(950px, 100%); padding: 24px 16px 36px; }
+  header { display: flex; justify-content: space-between; align-items: end; gap: 18px; margin-bottom: 16px; }
+  h1 { margin: 0; color: var(--pink); font-size: clamp(2.2rem, 6vw, 3.8rem); line-height: .9; letter-spacing: -.06em; }
+  h1 span { display: block; color: var(--muted); font-size: .3em; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
+  .stats { display: flex; gap: 8px; }
+  .stat { min-width: 82px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); text-align: center; }
+  .stat strong { display: block; color: var(--gold); font-size: 1.3rem; }
+  .stat small { color: var(--muted); font-size: .7rem; letter-spacing: .08em; text-transform: uppercase; }
+  .game-shell { position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: 20px; background: var(--panel); box-shadow: 0 18px 50px rgba(0,0,0,.4); }
+  canvas { display: block; width: 100%; height: auto; aspect-ratio: 900 / 560; touch-action: none; }
+  .overlay { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(16, 14, 32, .8); text-align: center; }
+  .overlay[hidden] { display: none; }
+  .card { max-width: 420px; padding: 28px; border: 1px solid var(--line); border-radius: 18px; background: rgba(33, 29, 58, .97); }
+  .card h2 { margin: 0 0 10px; color: var(--gold); font-size: 1.8rem; }
+  .card p { margin: 8px 0 18px; color: var(--muted); line-height: 1.5; }
+  button { border: 0; border-radius: 10px; padding: 12px 20px; background: var(--gold); color: #281d35; font: inherit; font-weight: 800; cursor: pointer; }
+  button:hover, button:focus-visible { background: #ffe39a; outline: 3px solid rgba(255,209,102,.3); outline-offset: 2px; }
+  .help { display: flex; justify-content: space-between; gap: 16px; margin-top: 14px; color: var(--muted); font-size: .88rem; }
+  kbd { display: inline-block; min-width: 26px; padding: 2px 6px; border: 1px solid var(--line); border-bottom-width: 3px; border-radius: 5px; color: var(--ink); text-align: center; }
+  @media (max-width: 620px) { header { align-items: start; flex-direction: column; } .help { flex-direction: column; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1><span>Adventure is afoot</span>Cat Jump</h1>
+    <div class="stats" aria-live="polite">
+      <div class="stat"><strong id="level">1</strong><small>level</small></div>
+      <div class="stat"><strong id="stars">0</strong><small>stars</small></div>
+      <div class="stat"><strong id="lives">∞</strong><small>lives</small></div>
+    </div>
+  </header>
+  <section class="game-shell" aria-label="Cat Jump game">
+    <canvas id="game" width="900" height="560"></canvas>
+    <div class="overlay" id="overlay">
+      <div class="card">
+        <h2 id="overlay-title">Help the cat climb!</h2>
+        <p id="overlay-message">Jump across boxes and obstacles to reach the star. Each level adds more tricky platforms.</p>
+        <button id="start" type="button">Start adventure</button>
+      </div>
+    </div>
+  </section>
+  <div class="help">
+    <div><kbd>A</kbd><kbd>←</kbd> and <kbd>D</kbd><kbd>→</kbd> move · <kbd>W</kbd><kbd>↑</kbd><kbd>Space</kbd> jump</div>
+    <div id="status">Reach the star!</div>
+  </div>
+</main>
+<script>
+(() => {
+  const canvas = document.getElementById("game");
+  const ctx = canvas.getContext("2d");
+  const overlay = document.getElementById("overlay");
+  const title = document.getElementById("overlay-title");
+  const message = document.getElementById("overlay-message");
+  const startButton = document.getElementById("start");
+  const levelEl = document.getElementById("level");
+  const starsEl = document.getElementById("stars");
+  const livesEl = document.getElementById("lives");
+  const statusEl = document.getElementById("status");
+  const keys = {};
+  const cat = { x: 100, y: 380, width: 38, height: 48, vx: 0, vy: 0, onGround: false };
+  let platforms = [];
+  let hazards = [];
+  let goal = { x: 0, y: 0 };
+  let camera = 0;
+  let level = 1;
+  let stars = 0;
+  let lives = 3;
+  let running = false;
+  let lastTime = 0;
+  let jumpHeld = false;
+  let wonLevel = false;
+  const gravity = 1450;
+
+  function updateStats() {
+    levelEl.textContent = level;
+    starsEl.textContent = stars;
+    livesEl.textContent = "∞";
+  }
+
+  function buildLevel() {
+    const length = 2100 + level * 420;
+    platforms = [{ x: -80, y: 468, width: 360, height: 50 }];
+    hazards = [];
+    let x = 340;
+    let y = 410;
+    for (let i = 0; i < 10 + level * 2; i++) {
+      const gap = 45 + Math.random() * (45 + level * 8);
+      x += gap;
+      y = Math.max(300, Math.min(465, y + (Math.random() * 130 - 65)));
+      const width = Math.max(105, 190 - level * 7 - Math.random() * 35);
+      platforms.push({ x, y, width, height: 34 });
+      if (i > 1 && i % 2 === 0) hazards.push({ x: x + width * .45, y: y - 28, width: 24, height: 28 });
+      x += width;
+    }
+    const goalPlatform = { x: length - 360, y: 430, width: 420, height: 38 };
+    platforms.push(goalPlatform);
+    hazards = hazards.filter(hazard =>
+      hazard.x + hazard.width < goalPlatform.x - 100 ||
+      hazard.x > goalPlatform.x + goalPlatform.width + 100
+    );
+    goal = { x: goalPlatform.x + goalPlatform.width / 2, y: 360 };
+    cat.x = 100; cat.y = 390; cat.vx = 0; cat.vy = 0; cat.onGround = false;
+    camera = 0;
+    wonLevel = false;
+  }
+
+  function startGame() {
+    level = 1; stars = 0; lives = Infinity; running = true;
+    buildLevel(); updateStats(); overlay.hidden = true; statusEl.textContent = "Reach the star!";
+    lastTime = performance.now(); requestAnimationFrame(loop);
+  }
+
+  function loseLife() {
+    cat.x = Math.max(80, camera + 100);
+    cat.y = 300;
+    cat.vx = 0;
+    cat.vy = 0;
+    statusEl.textContent = "Careful! Try that jump again.";
+  }
+
+  function completeLevel() {
+    if (wonLevel) return;
+    wonLevel = true; stars += 1; level += 1; updateStats();
+    statusEl.textContent = "Star collected! New level!";
+    setTimeout(() => { if (running) buildLevel(); }, 650);
+  }
+
+  function rectsOverlap(a, b) {
+    return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+  }
+
+  function moveCat(delta) {
+    const left = keys.ArrowLeft || keys.a;
+    const right = keys.ArrowRight || keys.d;
+    cat.vx = left && !right ? -260 : right && !left ? 260 : 0;
+    if ((keys.ArrowUp || keys.w || keys[" "]) && cat.onGround && !jumpHeld) { cat.vy = -585; cat.onGround = false; jumpHeld = true; }
+    if (!(keys.ArrowUp || keys.w || keys[" "])) jumpHeld = false;
+    const previousBottom = cat.y + cat.height;
+    cat.x += cat.vx * delta;
+    cat.vy += gravity * delta;
+    cat.y += cat.vy * delta;
+    cat.onGround = false;
+    for (const platform of platforms) {
+      const horizontal = cat.x + cat.width > platform.x && cat.x < platform.x + platform.width;
+      if (horizontal && previousBottom <= platform.y && cat.y + cat.height >= platform.y && cat.vy >= 0) {
+        cat.y = platform.y - cat.height; cat.vy = 0; cat.onGround = true;
+      }
+    }
+    for (const hazard of hazards) if (rectsOverlap(cat, hazard)) loseLife();
+    if (cat.y > canvas.height + 80) loseLife();
+    if (cat.x > goal.x - 30 && cat.x < goal.x + 55 && cat.y < goal.y + 70) completeLevel();
+    camera += (cat.x - camera - 280) * Math.min(1, delta * 4);
+    camera = Math.max(0, Math.min(camera, goal.x - 600));
+  }
+
+  function loop(now) {
+    if (!running) return;
+    const delta = Math.min((now - lastTime) / 1000, .035); lastTime = now;
+    moveCat(delta); draw(now); requestAnimationFrame(loop);
+  }
+
+  function draw(now) {
+    const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    sky.addColorStop(0, "#25224c"); sky.addColorStop(1, "#10142b");
+    ctx.fillStyle = sky; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.save(); ctx.translate(-camera, 0);
+    drawBackground(now);
+    platforms.forEach(drawPlatform);
+    hazards.forEach(drawHazard);
+    drawStar(goal.x, goal.y, now);
+    drawCat();
+    ctx.restore();
+  }
+
+  function drawBackground(now) {
+    ctx.fillStyle = "rgba(255,255,255,.16)";
+    for (let i = 0; i < 45; i++) { const x = (i * 181) % (goal.x + 500); const y = 45 + ((i * 67) % 260); ctx.fillRect(x, y + Math.sin(now / 900 + i) * 3, 2, 2); }
+    ctx.fillStyle = "#191b39";
+    for (let x = -100; x < goal.x + 600; x += 170) { ctx.beginPath(); ctx.moveTo(x, 468); ctx.lineTo(x + 75, 330); ctx.lineTo(x + 180, 468); ctx.fill(); }
+  }
+
+  function drawPlatform(platform) {
+    ctx.fillStyle = "#9c6b4d"; ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
+    ctx.fillStyle = "#c18a61"; ctx.fillRect(platform.x, platform.y, platform.width, 8);
+    ctx.strokeStyle = "rgba(55,31,43,.4)"; ctx.lineWidth = 3; ctx.strokeRect(platform.x + 8, platform.y + 12, platform.width - 16, platform.height - 18);
+  }
+
+  function drawHazard(hazard) {
+    ctx.fillStyle = "#f78fb3"; ctx.beginPath(); ctx.moveTo(hazard.x, hazard.y + hazard.height); ctx.lineTo(hazard.x + hazard.width / 2, hazard.y); ctx.lineTo(hazard.x + hazard.width, hazard.y + hazard.height); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "#381d40"; ctx.fillRect(hazard.x + 9, hazard.y + 15, 5, 5); ctx.fillRect(hazard.x + 14, hazard.y + 15, 5, 5);
+  }
+
+  function drawStar(x, y, now) {
+    ctx.save(); ctx.translate(x, y + Math.sin(now / 260) * 7); ctx.rotate(now / 900);
+    ctx.fillStyle = "#ffd166"; ctx.shadowColor = "#ffd166"; ctx.shadowBlur = 20;
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) { const angle = -Math.PI / 2 + i * Math.PI / 5; const radius = i % 2 ? 18 : 38; const px = Math.cos(angle) * radius; const py = Math.sin(angle) * radius; if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); }
+    ctx.closePath(); ctx.fill(); ctx.restore();
+  }
+
+  function drawCat() {
+    const bob = cat.onGround ? Math.sin(performance.now() / 120) * 1.5 : 0;
+    const x = cat.x; const y = cat.y + bob;
+    ctx.save(); ctx.translate(x, y);
+    ctx.fillStyle = "#aeb4c2"; ctx.strokeStyle = "#5b6172"; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.roundRect(5, 14, 30, 30, 10); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(7, 18); ctx.lineTo(7, 0); ctx.lineTo(18, 10); ctx.moveTo(33, 18); ctx.lineTo(33, 0); ctx.lineTo(22, 10); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = "#ffd166"; ctx.beginPath(); ctx.arc(15, 19, 3, 0, Math.PI * 2); ctx.arc(27, 19, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "#aeb4c2"; ctx.lineWidth = 8; ctx.beginPath(); ctx.moveTo(8, 39); ctx.quadraticCurveTo(-20, 35, -7, 18); ctx.stroke();
+    ctx.strokeStyle = "#5b6172"; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(15, 44); ctx.lineTo(12, 49); ctx.moveTo(27, 44); ctx.lineTo(30, 49); ctx.stroke();
+    ctx.restore();
+  }
+
+  window.addEventListener("keydown", event => { if (["ArrowLeft", "ArrowRight", "ArrowUp", " "].includes(event.key)) event.preventDefault(); keys[event.key] = true; });
+  window.addEventListener("keyup", event => { keys[event.key] = false; });
+  startButton.addEventListener("click", startGame);
+  draw(0);
+})();
+</script>
+</body>
+</html>

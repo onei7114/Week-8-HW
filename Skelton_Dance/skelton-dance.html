@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skelton Dance</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --ink: #f7f1df;
+    --muted: #b7ad9a;
+    --panel: #211b2d;
+    --panel-light: #2e2540;
+    --line: #4d3e61;
+    --accent: #ffca5c;
+    --pink: #ff6f91;
+    --blue: #77d7e8;
+    --shadow: 0 18px 50px rgba(0, 0, 0, .35);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center;
+    background: #100e18; color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { width: min(940px, 100%); padding: 24px 16px 36px; }
+  header { display: flex; align-items: end; justify-content: space-between; gap: 18px; margin-bottom: 16px; }
+  h1 { margin: 0; color: var(--accent); font-size: clamp(2rem, 5vw, 3.4rem); line-height: .95; letter-spacing: -.05em; }
+  h1 span { display: block; color: var(--ink); font-size: .34em; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+  .stats { display: flex; gap: 8px; flex-wrap: wrap; justify-content: end; }
+  .stat { min-width: 82px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); text-align: center; }
+  .stat strong { display: block; color: var(--accent); font-size: 1.3rem; }
+  .stat small { color: var(--muted); font-size: .7rem; letter-spacing: .08em; text-transform: uppercase; }
+  .music-button { padding: 8px 12px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font-size: .82rem; }
+  .music-button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+  .game-shell { position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: 20px; background: var(--panel); box-shadow: var(--shadow); }
+  canvas { display: block; width: 100%; height: auto; aspect-ratio: 900 / 600; }
+  .overlay { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(16, 14, 24, .78); text-align: center; }
+  .overlay[hidden] { display: none; }
+  .card { max-width: 390px; padding: 28px; border: 1px solid var(--line); border-radius: 18px; background: rgba(33, 27, 45, .96); }
+  .card h2 { margin: 0 0 10px; color: var(--accent); font-size: 1.8rem; }
+  .card p { margin: 8px 0; color: var(--muted); line-height: 1.5; }
+  button { border: 0; border-radius: 10px; padding: 12px 20px; background: var(--accent); color: #201527; font: inherit; font-weight: 800; cursor: pointer; }
+  button:hover, button:focus-visible { background: #ffe09a; outline: 3px solid rgba(255, 202, 92, .35); outline-offset: 2px; }
+  .help { display: flex; justify-content: space-between; gap: 16px; margin-top: 14px; color: var(--muted); font-size: .88rem; }
+  kbd { display: inline-block; min-width: 28px; margin: 0 2px; padding: 3px 6px; border: 1px solid var(--line); border-bottom-width: 3px; border-radius: 6px; color: var(--ink); text-align: center; }
+  @media (max-width: 620px) {
+    header { align-items: start; flex-direction: column; }
+    .stats { justify-content: start; }
+    .help { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1><span>Welcome to the crypt</span>Skelton Dance</h1>
+    <div class="stats" aria-live="polite">
+      <div class="stat"><strong id="score">0</strong><small>score</small></div>
+      <div class="stat"><strong id="level">1</strong><small>level</small></div>
+      <div class="stat"><strong id="misses">0 / 3</strong><small>misses</small></div>
+      <button class="music-button" id="music" type="button" aria-pressed="true">♫ Music on</button>
+    </div>
+  </header>
+
+  <section class="game-shell" aria-label="Skelton Dance game">
+    <canvas id="game" width="900" height="600"></canvas>
+    <div class="overlay" id="overlay">
+      <div class="card">
+        <h2 id="overlay-title">Ready to rattle?</h2>
+        <p id="overlay-message">Match each falling arrow when it reaches the glowing line. The dance gets faster every 10 hits.</p>
+        <button id="start" type="button">Start dancing</button>
+      </div>
+    </div>
+  </section>
+  <div class="help">
+    <div>Use <kbd>←</kbd><kbd>↓</kbd><kbd>↑</kbd><kbd>→</kbd> or your arrow keys.</div>
+    <div>Hit the glowing line. Three missed arrows ends the dance.</div>
+  </div>
+</main>
+
+<script>
+(() => {
+  const canvas = document.getElementById("game");
+  const ctx = canvas.getContext("2d");
+  const scoreEl = document.getElementById("score");
+  const levelEl = document.getElementById("level");
+  const missesEl = document.getElementById("misses");
+  const overlay = document.getElementById("overlay");
+  const overlayTitle = document.getElementById("overlay-title");
+  const overlayMessage = document.getElementById("overlay-message");
+  const startButton = document.getElementById("start");
+  const musicButton = document.getElementById("music");
+  const directions = ["left", "down", "up", "right"];
+  const keys = { ArrowLeft: "left", ArrowDown: "down", ArrowUp: "up", ArrowRight: "right" };
+  const laneColors = ["#ff6f91", "#ffca5c", "#77d7e8", "#b799ff"];
+  const hitY = 466;
+  const hitWindow = 72;
+  let arrows = [];
+  let running = false;
+  let lastTime = 0;
+  let spawnTimer = 0;
+  let score = 0;
+  let hits = 0;
+  let misses = 0;
+  let level = 1;
+  let pose = 0;
+  let feedback = "";
+  let feedbackUntil = 0;
+  let audioContext;
+  let musicTimer;
+  let musicStep = 0;
+  let musicOn = true;
+
+  function playTone(frequency, duration, type, volume, delay = 0) {
+    if (!audioContext || !musicOn) return;
+    const oscillator = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    const start = audioContext.currentTime + delay;
+    oscillator.type = type;
+    oscillator.frequency.setValueAtTime(frequency, start);
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(volume, start + .015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+    oscillator.connect(gain).connect(audioContext.destination);
+    oscillator.start(start);
+    oscillator.stop(start + duration + .03);
+  }
+
+  function playBeat() {
+    if (!audioContext || !musicOn) return;
+    const melody = [196, 233, 262, 233, 175, 233, 294, 262];
+    const bass = [98, 98, 117, 87];
+    const note = melody[musicStep % melody.length];
+    playTone(note, .16, "triangle", .045);
+    playTone(bass[musicStep % bass.length], .3, "sine", .08);
+    if (musicStep % 4 === 0) playTone(65, .08, "square", .035, .01);
+    musicStep += 1;
+  }
+
+  function startMusic() {
+    if (!musicOn) return;
+    if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioContext.state === "suspended") audioContext.resume();
+    clearInterval(musicTimer);
+    musicStep = 0;
+    playBeat();
+    musicTimer = setInterval(playBeat, 260);
+  }
+
+  function stopMusic() {
+    clearInterval(musicTimer);
+    musicTimer = null;
+  }
+
+  function toggleMusic() {
+    musicOn = !musicOn;
+    musicButton.setAttribute("aria-pressed", String(musicOn));
+    musicButton.textContent = musicOn ? "♫ Music on" : "♫ Music off";
+    if (musicOn && running) startMusic();
+    else if (!musicOn) stopMusic();
+  }
+
+  function reset() {
+    arrows = [];
+    score = 0; hits = 0; misses = 0; level = 1; pose = 0; spawnTimer = 0; feedback = "";
+    updateStats();
+  }
+
+  function updateStats() {
+    scoreEl.textContent = score;
+    levelEl.textContent = level;
+    missesEl.textContent = `${misses} / 3`;
+  }
+
+  function startGame() {
+    reset();
+    running = true;
+    startMusic();
+    overlay.hidden = true;
+    lastTime = performance.now();
+    requestAnimationFrame(loop);
+  }
+
+  function endGame() {
+    running = false;
+    stopMusic();
+    overlayTitle.textContent = "The dance is over";
+    overlayMessage.textContent = `You scored ${score} points and reached level ${level}. Ready for one more encore?`;
+    startButton.textContent = "Dance again";
+    overlay.hidden = false;
+  }
+
+  function spawnArrow() {
+    arrows.push({ direction: directions[Math.floor(Math.random() * directions.length)], y: -50, judged: false });
+  }
+
+  function speed() {
+    return 165 + (level - 1) * 28;
+  }
+
+  function spawnEvery() {
+    return Math.max(480, 1050 - (level - 1) * 70);
+  }
+
+  function hit(direction) {
+    const candidates = arrows
+      .filter(arrow => !arrow.judged && arrow.direction === direction)
+      .sort((a, b) => Math.abs(a.y - hitY) - Math.abs(b.y - hitY));
+    const arrow = candidates[0];
+    if (!arrow || Math.abs(arrow.y - hitY) > hitWindow) {
+      feedback = "Keep the beat!";
+      feedbackUntil = performance.now() + 450;
+      return;
+    }
+    arrow.judged = true;
+    hits += 1;
+    score += 10;
+    pose = (pose + 1) % 6;
+    if (hits % 10 === 0) {
+      level = Math.floor(hits / 10) + 1;
+      feedback = `Level ${level}! Faster bones!`;
+    } else {
+      feedback = "Perfect!";
+    }
+    feedbackUntil = performance.now() + 550;
+    updateStats();
+  }
+
+  function loop(now) {
+    if (!running) return;
+    const delta = Math.min((now - lastTime) / 1000, .05);
+    lastTime = now;
+    spawnTimer += delta * 1000;
+    if (spawnTimer >= spawnEvery()) {
+      spawnTimer = 0;
+      spawnArrow();
+    }
+    arrows.forEach(arrow => { if (!arrow.judged) arrow.y += speed() * delta; });
+    const before = arrows.length;
+    arrows = arrows.filter(arrow => {
+      if (arrow.judged) return false;
+      if (arrow.y < 550) return true;
+      misses += 1;
+      feedback = "Missed!";
+      feedbackUntil = now + 550;
+      return false;
+    });
+    if (misses !== 0 && before !== arrows.length) updateStats();
+    draw(now);
+    if (misses >= 3) {
+      endGame();
+      draw(now);
+      return;
+    }
+    requestAnimationFrame(loop);
+  }
+
+  function draw(now) {
+    const w = canvas.width;
+    ctx.clearRect(0, 0, w, canvas.height);
+    const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    gradient.addColorStop(0, "#211b2d");
+    gradient.addColorStop(1, "#161322");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, w, canvas.height);
+    drawStars(now);
+    drawStage(w);
+    drawSkeleton(w / 2, 286, pose);
+    arrows.forEach(arrow => drawArrow(arrow, w));
+    if (feedback && now < feedbackUntil) {
+      ctx.fillStyle = feedback === "Missed!" ? "#ff6f91" : "#ffca5c";
+      ctx.font = "800 24px system-ui";
+      ctx.textAlign = "center";
+      ctx.fillText(feedback, w / 2, 82);
+    }
+  }
+
+  function drawStars(now) {
+    ctx.fillStyle = "rgba(255, 255, 255, .16)";
+    for (let i = 0; i < 32; i++) {
+      const x = (i * 197) % canvas.width;
+      const y = ((i * 83) + now * .008 * (i % 3 + 1)) % 300;
+      ctx.fillRect(x, y, i % 3 + 1, i % 3 + 1);
+    }
+  }
+
+  function drawStage(w) {
+    ctx.strokeStyle = "rgba(255, 202, 92, .12)";
+    ctx.lineWidth = 2;
+    for (let x = 0; x < w; x += 90) {
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x + 170, 600); ctx.stroke();
+    }
+    ctx.strokeStyle = "#ffca5c";
+    ctx.shadowColor = "#ffca5c";
+    ctx.shadowBlur = 12;
+    ctx.beginPath(); ctx.moveTo(50, hitY); ctx.lineTo(w - 50, hitY); ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "#b7ad9a";
+    ctx.font = "700 13px system-ui";
+    ctx.textAlign = "left";
+    ctx.fillText("HIT ZONE", 54, hitY - 12);
+  }
+
+  function drawArrow(arrow, w) {
+    const lane = directions.indexOf(arrow.direction);
+    const x = w / 2 + (lane - 1.5) * 105;
+    const active = Math.abs(arrow.y - hitY) < hitWindow;
+    ctx.save();
+    ctx.translate(x, arrow.y);
+    ctx.rotate({ left: Math.PI, down: Math.PI / 2, up: -Math.PI / 2, right: 0 }[arrow.direction]);
+    ctx.fillStyle = laneColors[lane];
+    ctx.globalAlpha = arrow.judged ? .2 : 1;
+    ctx.shadowColor = laneColors[lane];
+    ctx.shadowBlur = active ? 22 : 8;
+    ctx.beginPath();
+    ctx.moveTo(33, 0); ctx.lineTo(0, -25); ctx.lineTo(0, -10); ctx.lineTo(-30, -10);
+    ctx.lineTo(-30, 10); ctx.lineTo(0, 10); ctx.lineTo(0, 25); ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawSkeleton(x, y, poseIndex) {
+    const poses = [
+      [[-52, -55, -86, -10], [52, -55, 86, -10], [-28, 80, -70, 135], [28, 80, 70, 135]],
+      [[-52, -55, -105, -75], [52, -55, 105, -75], [-28, 80, -15, 145], [28, 80, 65, 110]],
+      [[-52, -55, -72, -110], [52, -55, 88, -25], [-28, 80, -65, 110], [28, 80, 25, 148]],
+      [[-52, -55, -110, -20], [52, -55, 110, -20], [-28, 80, -10, 145], [28, 80, 78, 70]],
+      [[-52, -55, -85, -100], [52, -55, 85, -100], [-28, 80, -70, 55], [28, 80, 70, 55]],
+      [[-52, -55, -15, -115], [52, -55, 15, -115], [-28, 80, -65, 145], [28, 80, 65, 145]]
+    ];
+    const limbs = poses[poseIndex];
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.strokeStyle = "#f7f1df";
+    ctx.fillStyle = "#f7f1df";
+    ctx.lineWidth = 8;
+    ctx.lineCap = "round";
+    ctx.shadowColor = "rgba(255, 202, 92, .5)";
+    ctx.shadowBlur = 18;
+    ctx.beginPath(); ctx.arc(0, -112, 31, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "#211b2d";
+    ctx.beginPath(); ctx.ellipse(-10, -116, 5, 9, -.15, 0, Math.PI * 2); ctx.ellipse(10, -116, 5, 9, .15, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "#f7f1df";
+    ctx.beginPath(); ctx.moveTo(0, -80); ctx.lineTo(0, 58); ctx.stroke();
+    ctx.lineWidth = 6;
+    limbs.forEach(([a, b, c, d]) => {
+      ctx.beginPath(); ctx.moveTo(a, b); ctx.lineTo(c, d); ctx.stroke();
+    });
+    ctx.lineWidth = 5;
+    for (let i = -2; i <= 2; i++) {
+      ctx.beginPath(); ctx.moveTo(-14, -45 + i * 18); ctx.lineTo(14, -45 + i * 18); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  startButton.addEventListener("click", startGame);
+  musicButton.addEventListener("click", toggleMusic);
+  window.addEventListener("keydown", event => {
+    const direction = keys[event.key];
+    if (!direction) return;
+    event.preventDefault();
+    if (running) hit(direction);
+  });
+  draw(0);
+})();
+</script>
+</body>
+</html>
