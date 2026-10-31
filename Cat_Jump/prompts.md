@@ -9,7 +9,7 @@
 > - **Tags:** single-file-html, game
 > - **Takeaway:** Harder to make work that privius ones but pretty simpel
 > - **Story value:** It is Halloween so it is festive
-> - **Surprises:** The stars (which unlock the next level) where near spikes originally making it impossible to get the star
+> - **Surprises:** The stars (which unlock the next level) where near spikes originally making it impossible to get the star, It also has similar look the the skelton game
 
 # Prompt 1:
 
